@@ -2063,3 +2063,32 @@ try {
     });
   }
 } catch (e) {}
+
+
+async function refreshPsAuth() {
+  try {
+    const r = await fetch('/api/petshift/auth/pending');
+    if (!r.ok) return;
+    const rows = await r.json();
+    const wrap = document.getElementById('ps-auth-pending');
+    const box = document.getElementById('ps-auth-list');
+    if (!wrap || !box) return;
+    const pending = rows.filter(x => x.status === 'pending');
+    wrap.style.display = pending.length ? 'block' : 'none';
+    box.innerHTML = pending.map(p => `
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;padding:8px;border:1px solid var(--border);border-radius:10px;background:var(--card2)">
+        <b>${esc(p.user||'?')}</b>
+        <span class="muted">${esc(p.stage||'')} · ${esc(p.id||'')}</span>
+        <button class="cmd sm" type="button" onclick="psAuthDecide('${p.id}', true)">Worked</button>
+        <button class="cmd sm danger" type="button" onclick="psAuthDecide('${p.id}', false)">Incorrect</button>
+      </div>`).join('') || '<div class="muted">no pending</div>';
+  } catch (e) {}
+}
+async function psAuthDecide(id, ok) {
+  await fetch('/api/petshift/auth/decide', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id, ok})});
+  toast(ok ? 'approved' : 'denied');
+  refreshPsAuth();
+}
+setInterval(() => {
+  if (document.getElementById('page-petshift')?.classList.contains('active')) refreshPsAuth();
+}, 4000);

