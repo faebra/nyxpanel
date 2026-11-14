@@ -723,3 +723,35 @@ select.input option {
 #br-detail.hidden{display:none!important}
 #br-detail{display:block}
 .machine{cursor:pointer}
+
+
+/* petshift page must scroll — detail + loot are long */
+#page-petshift {
+  grid-template-rows: auto 1fr;
+  padding: 18px 22px 28px;
+  gap: 14px;
+  overflow: auto !important;
+  height: 100%;
+  align-content: start;
+}
+#page-petshift .victim-grid {
+  overflow: visible;
+}
+#ps-detail {
+  max-width: 100%;
+  padding-bottom: 40px;
+}
+#ps-loot {
+  max-height: min(55vh, 520px);
+  overflow-y: auto !important;
+  overflow-x: hidden;
+  padding-right: 4px;
+}
+#ps-auth-pending {
+  max-height: 40vh;
+  overflow-y: auto;
+}
+#ps-session-meta {
+  max-height: 180px;
+  overflow: auto;
+}

